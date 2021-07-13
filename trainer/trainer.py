@@ -10,7 +10,6 @@ import torch
 import numpy as np
 from torch.utils.tensorboard.summary import hparams
 from models import *  # do not remove
-from trainer.byol_wrapper import BYOLwrapper
 from trainer.lr_schedulers import WarmUpWrapper  # do not remove
 
 from torch.optim.lr_scheduler import *  # For loading optimizer specified in config
@@ -180,11 +179,11 @@ class Trainer():
                     epoch_predictions = torch.cat((predictions, epoch_predictions), 0)
 
         if optim == None:
-            total_metrics[type(self.loss_func).__name__] = epoch_loss / len(data_loader)
             if self.val_per_batch:
                 total_metrics = {k: v / len(data_loader) for k, v in total_metrics.items()}
             else:
                 total_metrics = self.evaluate_metrics(epoch_predictions, epoch_targets, val=True)
+            total_metrics[type(self.loss_func).__name__] = epoch_loss / len(data_loader)
             return total_metrics
 
     def after_optim_step(self):
