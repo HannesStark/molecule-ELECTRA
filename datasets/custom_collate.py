@@ -3,7 +3,6 @@ from typing import List, Tuple
 
 import dgl
 import torch
-import torch_geometric
 from torch.nn.utils.rnn import pad_sequence
 
 from commons.utils import get_adj_matrix
@@ -14,10 +13,6 @@ def graph_collate(batch: List[Tuple]):
     batched_graph = dgl.batch(graphs)
     return [batched_graph], torch.stack(targets).float()
 
-def pytorch_geometric_collate(batch: List[Tuple]):
-    graphs, targets = map(list, zip(*batch))
-    batched_graph = torch_geometric.data.batch.Batch.from_data_list(graphs)
-    return [batched_graph], torch.stack(targets).float()
 
 def s_norm_graph_collate(batch: List[Tuple]):
     graphs, targets = map(list, zip(*batch))
@@ -57,11 +52,6 @@ def contrastive_collate(batch: List[Tuple]):
     else:
         return [batched_graph], [batched_graph3d]
 
-def pytorch_geometric_contrastive_collate(batch: List[Tuple]):
-    graphs, graphs3d  = map(list, zip(*batch))
-    batched_graph3d = torch_geometric.data.batch.Batch.from_data_list(graphs3d)
-    batched_graph = dgl.batch(graphs)
-    return [batched_graph],  [batched_graph3d]
 
 
 class NoisedDistancesCollate(object):
