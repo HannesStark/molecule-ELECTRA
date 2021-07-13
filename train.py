@@ -21,7 +21,7 @@ seaborn.set_theme()
 import torch
 import yaml
 from datasets.custom_collate import *  # do not remove
-from models import *  # do not remove
+from models.pna import PNA  # do not remove
 from torch.nn import *  # do not remove
 from torch.optim import *  # do not remove
 from commons.losses import *  # do not remove
@@ -149,7 +149,7 @@ def train_ogbg(args, device, metrics_dict):
 
 def parse_arguments():
     p = argparse.ArgumentParser()
-    p.add_argument('--config', type=argparse.FileType(mode='r'), default='configs/pna_ogbg.yml')
+    p.add_argument('--config', type=argparse.FileType(mode='r'), default='configs/test.yml')
     p.add_argument('--experiment_name', type=str, help='name that will be added to the runs folder output')
     p.add_argument('--logdir', type=str, default='runs', help='tensorboard logdirectory')
     p.add_argument('--num_epochs', type=int, default=2500, help='number of times to iterate through all samples')

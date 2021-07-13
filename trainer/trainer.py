@@ -285,11 +285,11 @@ class Trainer():
             pyaml.dump(train_args.__dict__, yaml_path)
 
         # Get the class of the used model (works because of the "from models import *" calling the init.py in the models dir)
-        model_class = globals()[type(self.model).__name__]
-        source_code = inspect.getsource(model_class)  # Get the sourcecode of the class of the model.
-        file_name = os.path.basename(inspect.getfile(model_class))
-        with open(os.path.join(run_dir, file_name), "w") as f:
-            f.write(source_code)
+        # model_class = globals()[type(self.model).__name__]
+        # source_code = inspect.getsource(model_class)  # Get the sourcecode of the class of the model.
+        # file_name = os.path.basename(inspect.getfile(model_class))
+        #with open(os.path.join(run_dir, file_name), "w") as f:
+        #    f.write(source_code)
 
     def save_model_state(self, epoch: int, checkpoint_name: str):
         torch.save({

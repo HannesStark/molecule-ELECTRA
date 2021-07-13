@@ -4,10 +4,10 @@ from torch import nn
 
 class Generator(nn.Module):
 
-    def __init__(self, args):
+    def __init__(self, args, **kwargs):
         super(Generator, self).__init__()
-        self.mpn = MPNEncoder(args)
-        self.atom_fdim = get_atom_fdim()
+        self.mpn = PNA(**kwargs)
+        #self.atom_fdim = get_atom_fdim()
         self.W_o = nn.Linear(args.hidden_size, self.atom_fdim)
         self.loss = nn.BCEWithLogitsLoss(reduction='sum')
 
