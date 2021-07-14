@@ -7,28 +7,24 @@ from ogb.graphproppred import DglGraphPropPredDataset, collate_dgl
 from ogb.graphproppred.mol_encoder import AtomEncoder
 
 from commons.utils import seed_all, get_random_indices, TENSORBOARD_FUNCTIONS
+from datasets.chembl_dataset import ChEMBLDataset
 from datasets.ogbg_dataset_extension import OGBGDatasetExtension
 
-
-
 import seaborn
-
 
 install()
 seaborn.set_theme()
 
-
 import torch
 import yaml
+from models import *
 from datasets.custom_collate import *  # do not remove
-from models.pna import PNA  # do not remove
 from torch.nn import *  # do not remove
 from torch.optim import *  # do not remove
 from commons.losses import *  # do not remove
 from torch.optim.lr_scheduler import *  # do not remove
 
 from torch.utils.data import DataLoader, Subset
-
 
 from trainer.metrics import Rsquared, NegativeSimilarity, MeanPredictorLoss, \
     PositiveSimilarity, ContrastiveAccuracy, TrueNegativeRate, TruePositiveRate, Alignment, Uniformity, \
@@ -39,26 +35,20 @@ from trainer.trainer import Trainer
 
 def get_trainer(args, model, data, device, metrics):
     tensorboard_functions = {function: TENSORBOARD_FUNCTIONS[function] for function in args.tensorboard_functions}
-    return Trainer(model=model, args=args, metrics=metrics, main_metric=args.main_metric,
+    if args.dataset =='chembl':
+        return PreTrainer(model=model, args=args, metrics=metrics, main_metric=args.main_metric,
                        main_metric_goal=args.main_metric_goal, optim=globals()[args.optimizer],
                        loss_func=globals()[args.loss_func](**args.loss_params), device=device,
                        tensorboard_functions=tensorboard_functions,
                        scheduler_step_per_batch=args.scheduler_step_per_batch)
+    return Trainer(model=model, args=args, metrics=metrics, main_metric=args.main_metric,
+                   main_metric_goal=args.main_metric_goal, optim=globals()[args.optimizer],
+                   loss_func=globals()[args.loss_func](**args.loss_params), device=device,
+                   tensorboard_functions=tensorboard_functions, scheduler_step_per_batch=args.scheduler_step_per_batch)
 
 
 def load_model(args, data, device):
-    if isinstance(data[0][0], dgl.DGLGraph):
-        node_dim = data[0][0].ndata['feat'].shape[1]
-        try:
-            edge_dim = data[0][0].edata['feat'].shape[1] if args.use_e_features else 0
-        except:
-            edge_dim = data[0][0].edges['bond'].data['feat'].shape[1] if args.use_e_features else 0
-    else:
-        node_dim = data[0][0].shape[1]
-        edge_dim = 0
-    model = globals()[args.model_type](node_dim=node_dim, edge_dim=edge_dim,
-                                       avg_d=data.avg_degree if hasattr(data, 'avg_degree') else 1, device=device,
-                                       **args.model_parameters)
+    model = globals()[args.model_type](device=device, **args.model_parameters)
     if args.pretrain_checkpoint:
         # get arguments used during pretraining
         with open(os.path.join(os.path.dirname(args.pretrain_checkpoint), 'train_arguments.yaml'), 'r') as arg_file:
@@ -118,8 +108,23 @@ def train(args):
 
 
 def train_ogbg(args, device, metrics_dict):
-    dataset = OGBGDatasetExtension(return_types=args.required_data, device=device, name=args.dataset)
-    split_idx = dataset.get_idx_split()
+    if args.dataset == 'chembl':
+        dataclass = ChEMBLDataset
+    else:
+        dataclass = OGBGDatasetExtension
+    dataset = dataclass(return_types=args.required_data, device=device, name=args.dataset)
+
+    if args.dataset == 'chembl':
+        all_idx = get_random_indices(len(dataset), args.seed_data)
+        model_idx = all_idx[:380000]
+        test_idx = all_idx[len(model_idx): len(model_idx) + int(0.1 * len(dataset))]
+        val_idx = all_idx[len(model_idx) + len(test_idx):]
+        train_idx = model_idx[:args.num_train]
+
+        split_idx = {'train': train_idx, 'valid': val_idx, 'test': test_idx}
+    else:
+        split_idx = dataset.get_idx_split()
+
     collate_function = globals()[args.collate_function] if args.collate_params == {} else globals()[
         args.collate_function](**args.collate_params)
 
@@ -133,10 +138,11 @@ def train_ogbg(args, device, metrics_dict):
     model, num_pretrain = load_model(args, data=dataset, device=device)
 
     metrics = {metric: metrics_dict[metric] for metric in args.metrics}
-    metrics[args.dataset] = metrics_dict[args.dataset]
-    args.main_metric = args.dataset
-    args.val_per_batch = False
-    args.main_metric_goal = 'min' if metrics[args.main_metric].metric == 'rmse' else 'max'
+    if args.dataset != 'chembl':
+        metrics[args.dataset] = metrics_dict[args.dataset]
+        args.main_metric = args.dataset
+        args.val_per_batch = False
+        args.main_metric_goal = 'min' if metrics[args.main_metric].metric == 'rmse' else 'max'
     trainer = get_trainer(args=args, model=model, data=dataset, device=device, metrics=metrics)
     trainer.train(train_loader, val_loader)
 
@@ -144,12 +150,9 @@ def train_ogbg(args, device, metrics_dict):
         trainer.evaluation(test_loader, data_split='test')
 
 
-
-
-
 def parse_arguments():
     p = argparse.ArgumentParser()
-    p.add_argument('--config', type=argparse.FileType(mode='r'), default='configs/test.yml')
+    p.add_argument('--config', type=argparse.FileType(mode='r'), default='configs/pretrain.yml')
     p.add_argument('--experiment_name', type=str, help='name that will be added to the runs folder output')
     p.add_argument('--logdir', type=str, default='runs', help='tensorboard logdirectory')
     p.add_argument('--num_epochs', type=int, default=2500, help='number of times to iterate through all samples')

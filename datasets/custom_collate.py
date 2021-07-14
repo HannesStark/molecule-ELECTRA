@@ -13,6 +13,11 @@ def graph_collate(batch: List[Tuple]):
     batched_graph = dgl.batch(graphs)
     return [batched_graph], torch.stack(targets).float()
 
+def masked_collate(batch: List[Tuple]):
+    graphs = map(list, zip(*batch))
+    batched_graph = dgl.batch(graphs)
+    return [batched_graph], batched_graph
+
 
 def s_norm_graph_collate(batch: List[Tuple]):
     graphs, targets = map(list, zip(*batch))
