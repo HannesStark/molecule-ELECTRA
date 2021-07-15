@@ -19,23 +19,24 @@ class ELECTRA(nn.Module):
                                  layers=generator_out_layers)
 
         # discriminator:
-        self.node_gnn = PNAGNN(padding=True, **pna_discriminator_args)
+        self.node_gnn = PNAGNN(padding=False, **pna_discriminator_args)
         self.discriminator_out = MLP(in_dim=pna_discriminator_args['hidden_dim'], out_dim=1,
                                      layers=discriminator_out_layers)
-        self.cross_entropy_loss = CrossEntropyLoss()
+        self.cross_entropy_loss = CrossEntropyLoss(ignore_index=-1)
 
     def forward(self, graph, mask):
-        # shape of mask is [n_atoms, 1]
+        # shape of mask is [n_atoms, 1] and the masked values correspond to False
         self.generator(graph)
         reconstructions = graph.ndata['feat']
         reconstructions = self.generator_out(reconstructions)
 
+        # only calculate the loss for the masked atoms, so we set the rest to the ignore index which is -1
+        true_feat_masked = (~mask) * graph.ndata['true_feat'] - (mask) * torch.ones_like(graph.ndata['true_feat'])
         fake_features = []
         generator_loss = 0
         for i, start in enumerate(self.feature_dims_cumsum[:-1]):
             reconstruction = reconstructions[:, start: self.feature_dims_cumsum[i + 1]]
-            true_feat = graph.ndata['true_feat'][:, i]
-            generator_loss += self.cross_entropy_loss(reconstruction, true_feat)
+            generator_loss += self.cross_entropy_loss(reconstruction, true_feat_masked[:, i])
             reconstruction = reconstruction.detach()
             reconstruction_probs = torch.softmax(reconstruction, dim=1)
             fake_features.append(torch.argmax(reconstruction_probs, dim=1))

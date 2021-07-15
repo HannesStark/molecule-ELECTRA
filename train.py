@@ -105,8 +105,8 @@ def start_train(args, device, metrics_dict):
         val_idx = all_idx[len(model_idx) + len(test_idx):]
         train_idx = model_idx[:args.num_train]
         # for debugging
-        test_idx = all_idx[len(model_idx): len(model_idx) + 200]
-        val_idx = all_idx[len(model_idx) + len(test_idx): len(model_idx) + len(test_idx) + 300]
+        # test_idx = all_idx[len(model_idx): len(model_idx) + 200]
+        # val_idx = all_idx[len(model_idx) + len(test_idx): len(model_idx) + len(test_idx) + 300]
 
         split_idx = {'train': train_idx, 'valid': val_idx, 'test': test_idx}
     else:

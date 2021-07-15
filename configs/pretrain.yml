@@ -6,7 +6,7 @@ batch_size: 20
 log_iterations: 30
 patience: 30
 loss_func: BCEWithLogitsLoss
-num_train: 380
+num_train: 380000
 required_data:
   - dgl_graph
 metrics:
@@ -16,7 +16,7 @@ optimizer_params:
   lr: 1.0e-4
 collate_function: MaskedCollate
 collate_params:
-  mask_probability: 0.15
+  mask_probability: 0.2
 
 scheduler_step_per_batch: False
 lr_scheduler: WarmUpWrapper
@@ -35,13 +35,13 @@ lr_scheduler_params:
 model_type: 'ELECTRA'
 model_parameters:
   pna_generator_args:
-    hidden_dim: 90
+    hidden_dim: 50
     mid_batch_norm: True
     last_batch_norm: True
     # e^(log(forgetfulness ~0.001)/number of steps per epoch) = batch_norm_momentum   =>  e^(log(0.001)/100) = 0.970
     batch_norm_momentum: 0.1
     dropout: 0.0
-    propagation_depth: 4
+    propagation_depth: 3
     aggregators:
       - mean
       - max
@@ -52,16 +52,16 @@ model_parameters:
       - amplification
       - attenuation
     pretrans_layers: 2
-    posttrans_layers: 1
+    posttrans_layers: 2
     residual: True
   pna_discriminator_args:
-      hidden_dim: 90
+      hidden_dim: 50
       mid_batch_norm: True
       last_batch_norm: True
       # e^(log(forgetfulness ~0.001)/number of steps per epoch) = batch_norm_momentum   =>  e^(log(0.001)/100) = 0.970
       batch_norm_momentum: 0.1
       dropout: 0.0
-      propagation_depth: 4
+      propagation_depth: 3
       aggregators:
         - mean
         - max
@@ -72,5 +72,5 @@ model_parameters:
         - amplification
         - attenuation
       pretrans_layers: 2
-      posttrans_layers: 1
+      posttrans_layers: 2
       residual: True
