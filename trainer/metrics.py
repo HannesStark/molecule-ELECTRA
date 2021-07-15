@@ -207,6 +207,14 @@ class ContrastiveAccuracy(nn.Module):
         true_negatives = num_negatives - (((~preds).long() - neg_mask) * neg_mask).count_nonzero()
         return (true_positives / num_positives + true_negatives / num_negatives) / 2
 
+class Accuracy(nn.Module):
+    def __init__(self) -> None:
+        super(Accuracy, self).__init__()
+
+    def forward(self, x1: Tensor, x2: Tensor, pos_mask: Tensor = None) -> Tensor:
+        batch_size, _ = x1.size()
+        return (x1 == x2).float().mean()
+
 
 
 class PositiveSimilarity(nn.Module):
@@ -233,6 +241,8 @@ class PositiveSimilarity(nn.Module):
             pos_sim = F.cosine_similarity(x1, x2)
         pos_sim = (pos_sim + 1) / 2
         return pos_sim.mean(dim=0)
+
+
 
 class PositiveProb(nn.Module):
     def __init__(self) -> None:

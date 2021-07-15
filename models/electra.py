@@ -1,66 +1,52 @@
 import torch
+from ogb.utils.features import get_atom_feature_dims
 from torch import nn
+from torch.nn import CrossEntropyLoss
 
-from models.pna import PNA
+from models.base_layers import MLP
+from models.pna import PNAGNN
 
-
-class Generator(nn.Module):
-
-    def __init__(self, hidden_dim, pna_args):
-        super(Generator, self).__init__()
-        self.mpn = PNA(*pna_args)
-        self.W_o = nn.Linear(hidden_dim, 1)
-        self.loss = nn.BCEWithLogitsLoss(reduction='sum')
-
-    # masked_graph is molecules with masked atoms
-    # true_fatoms is the original atom features
-    def forward(self, masked_graph, true_fatoms):
-        mol_vecs = self.mpn(masked_graph)
-        loss = tot = 0.
-        pred_fatoms = []
-
-        for atom_hiddens, flabels in zip(mol_vecs, true_fatoms):
-            out = self.W_o(atom_hiddens)
-            loss = loss + self.loss(out, flabels)
-            tot = tot + len(atom_hiddens)
-            # In ELECTRA, generator and discriminator are disconnected (see paper)
-            out = torch.sigmoid(out).detach()
-            pred_fatoms.append(out)
-
-class Discriminator(nn.Module):
-
-    def __init__(self, hidden_dim, pna_args):
-        super(Discriminator, self).__init__()
-        self.mpn = PNA(*pna_args)
-        self.W_o = nn.Linear(hidden_dim, 1)
-        self.loss = nn.BCEWithLogitsLoss(reduction='sum')
-
-    # masked_graph is molecules with corrupted atom featuress
-    # mask_labels = 1 means this atom is corrupted
-    def forward(self, corrupt_graph, mask_labels):
-        mol_vecs = self.mpn(corrupt_graph)
-        loss = tot = 0.
-        for atom_hiddens, mlabels in zip(mol_vecs, mask_labels):
-            out = self.W_o(atom_hiddens).squeeze(-1)
-            loss = loss + self.loss(out, mlabels)
-            tot = tot + len(atom_hiddens)
-        return loss / tot
 
 class ELECTRA(nn.Module):
 
-    def __init__(self, generator_args, discriminator_args, **kwargs):
+    def __init__(self, pna_generator_args, pna_discriminator_args, device, generator_out_layers=1,
+                 discriminator_out_layers=1, **kwargs):
         super(ELECTRA, self).__init__()
-        self.generator = Generator(*generator_args)
-        self.discriminator = Discriminator(*discriminator_args)
+        self.generator = PNAGNN(padding=True, **pna_generator_args)
+        self.feature_dims = torch.tensor([0] + get_atom_feature_dims(), device=device)
+        self.feature_dims_cumsum = torch.cumsum(self.feature_dims, dim=0)
+        self.generator_out = MLP(in_dim=pna_generator_args['hidden_dim'], out_dim=self.feature_dims.sum(),
+                                 layers=generator_out_layers)
 
+        # discriminator:
+        self.node_gnn = PNAGNN(padding=True, **pna_discriminator_args)
+        self.discriminator_out = MLP(in_dim=pna_discriminator_args['hidden_dim'], out_dim=1,
+                                     layers=discriminator_out_layers)
+        self.cross_entropy_loss = CrossEntropyLoss()
 
-    # masked_graph is molecules with corrupted atom featuress
-    # mask_labels = 1 means this atom is corrupted
-    def forward(self, corrupt_graph, mask_labels):
-        mol_vecs = self.mpn(corrupt_graph)
-        loss = tot = 0.
-        for atom_hiddens, mlabels in zip(mol_vecs, mask_labels):
-            out = self.W_o(atom_hiddens).squeeze(-1)
-            loss = loss + self.loss(out, mlabels)
-            tot = tot + len(atom_hiddens)
-        return loss / tot
+    def forward(self, graph, mask):
+        # shape of mask is [n_atoms, 1]
+        self.generator(graph)
+        reconstructions = graph.ndata['feat']
+        reconstructions = self.generator_out(reconstructions)
+
+        fake_features = []
+        generator_loss = 0
+        for i, start in enumerate(self.feature_dims_cumsum[:-1]):
+            reconstruction = reconstructions[:, start: self.feature_dims_cumsum[i + 1]]
+            true_feat = graph.ndata['true_feat'][:, i]
+            generator_loss += self.cross_entropy_loss(reconstruction, true_feat)
+            reconstruction = reconstruction.detach()
+            reconstruction_probs = torch.softmax(reconstruction, dim=1)
+            fake_features.append(torch.argmax(reconstruction_probs, dim=1))
+        fake_features = torch.stack(fake_features, dim=1)
+
+        # take fake features for masked tokens and the original ones for the rest
+        graph.ndata['feat'] = mask * graph.ndata['true_feat'] + (~mask) * fake_features
+        graph.edata['feat'] = graph.edata['true_feat']
+
+        # discriminator part:
+        self.node_gnn(graph)
+        predictions = self.discriminator_out(graph.ndata['feat'])
+
+        return generator_loss, predictions

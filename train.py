@@ -1,10 +1,7 @@
 import argparse
 import os
-from itertools import chain
 
 from icecream import install
-from ogb.graphproppred import DglGraphPropPredDataset, collate_dgl
-from ogb.graphproppred.mol_encoder import AtomEncoder
 
 from commons.utils import seed_all, get_random_indices, TENSORBOARD_FUNCTIONS
 from datasets.chembl_dataset import ChEMBLDataset
@@ -12,10 +9,11 @@ from datasets.ogbg_dataset_extension import OGBGDatasetExtension
 
 import seaborn
 
+from trainer.pre_trainer import PreTrainer
+
 install()
 seaborn.set_theme()
 
-import torch
 import yaml
 from models import *
 from datasets.custom_collate import *  # do not remove
@@ -26,21 +24,18 @@ from torch.optim.lr_scheduler import *  # do not remove
 
 from torch.utils.data import DataLoader, Subset
 
-from trainer.metrics import Rsquared, NegativeSimilarity, MeanPredictorLoss, \
-    PositiveSimilarity, ContrastiveAccuracy, TrueNegativeRate, TruePositiveRate, Alignment, Uniformity, \
-    BatchVariance, DimensionCovariance, MAE, PositiveSimilarityMultiplePositivesSeparate2d, \
-    NegativeSimilarityMultiplePositivesSeparate2d, OGBEvaluator, PearsonR, PositiveProb, NegativeProb
+from trainer.metrics import Rsquared, MeanPredictorLoss, MAE,  OGBEvaluator, PearsonR, Accuracy
 from trainer.trainer import Trainer
 
 
 def get_trainer(args, model, data, device, metrics):
     tensorboard_functions = {function: TENSORBOARD_FUNCTIONS[function] for function in args.tensorboard_functions}
-    if args.dataset =='chembl':
+    if args.dataset == 'chembl':
         return PreTrainer(model=model, args=args, metrics=metrics, main_metric=args.main_metric,
-                       main_metric_goal=args.main_metric_goal, optim=globals()[args.optimizer],
-                       loss_func=globals()[args.loss_func](**args.loss_params), device=device,
-                       tensorboard_functions=tensorboard_functions,
-                       scheduler_step_per_batch=args.scheduler_step_per_batch)
+                          main_metric_goal=args.main_metric_goal, optim=globals()[args.optimizer],
+                          loss_func=globals()[args.loss_func](**args.loss_params), device=device,
+                          tensorboard_functions=tensorboard_functions,
+                          scheduler_step_per_batch=args.scheduler_step_per_batch)
     return Trainer(model=model, args=args, metrics=metrics, main_metric=args.main_metric,
                    main_metric_goal=args.main_metric_goal, optim=globals()[args.optimizer],
                    loss_func=globals()[args.loss_func](**args.loss_params), device=device,
@@ -50,6 +45,7 @@ def get_trainer(args, model, data, device, metrics):
 def load_model(args, data, device):
     model = globals()[args.model_type](device=device, **args.model_parameters)
     if args.pretrain_checkpoint:
+        ic('here')
         # get arguments used during pretraining
         with open(os.path.join(os.path.dirname(args.pretrain_checkpoint), 'train_arguments.yaml'), 'r') as arg_file:
             pretrain_dict = yaml.load(arg_file, Loader=yaml.FullLoader)
@@ -59,10 +55,10 @@ def load_model(args, data, device):
         checkpoint = torch.load(args.pretrain_checkpoint, map_location=device)
         # get all the weights that have something from 'args.transfer_layers' in their keys name
         # but only if they do not contain 'teacher' and remove 'student.' which we need for loading from BYOLWrapper
-        pretrained_gnn_dict = {k.replace('student.', ''): v for k, v in checkpoint['model_state_dict'].items() if any(
-            transfer_layer in k for transfer_layer in args.transfer_layers) and 'teacher' not in k and not any(
-            to_exclude in k for to_exclude in args.exclude_from_transfer)}
+        pretrained_gnn_dict = {k: v for k, v in checkpoint['model_state_dict'].items() if any(transfer_layer in k for transfer_layer in args.transfer_layers) and not any(to_exclude in k for to_exclude in args.exclude_from_transfer)}
         model_state_dict = model.state_dict()
+        ic(pretrained_gnn_dict.keys())
+        ic(model_state_dict.keys())
         model_state_dict.update(pretrained_gnn_dict)  # update the gnn layers with the pretrained weights
         model.load_state_dict(model_state_dict)
         return model, pretrain_args.num_train
@@ -87,27 +83,15 @@ def train(args):
                     'ogbg-molsider': OGBEvaluator(d_name='ogbg-molsider', metric='rocauc'),
                     'ogbg-molfreesolv': OGBEvaluator(d_name='ogbg-molfreesolv', metric='rmse'),
                     'ogbg-molesol': OGBEvaluator(d_name='ogbg-molesol', metric='rmse'),
-                    'positive_similarity': PositiveSimilarity(),
-                    'positive_similarity_multiple_positives_separate2d': PositiveSimilarityMultiplePositivesSeparate2d(),
-                    'positive_prob': PositiveProb(),
-                    'negative_prob': NegativeProb(),
-                    'negative_similarity': NegativeSimilarity(),
-                    'negative_similarity_multiple_positives_separate2d': NegativeSimilarityMultiplePositivesSeparate2d(),
-                    'contrastive_accuracy': ContrastiveAccuracy(threshold=0.5009),
-                    'true_negative_rate': TrueNegativeRate(threshold=0.5009),
-                    'true_positive_rate': TruePositiveRate(threshold=0.5009),
+                    'accuracy': Accuracy(),
                     'mean_predictor_loss': MeanPredictorLoss(globals()[args.loss_func](**args.loss_params)),
-                    'uniformity': Uniformity(t=2),
-                    'alignment': Alignment(alpha=2),
-                    'batch_variance': BatchVariance(),
-                    'dimension_covariance': DimensionCovariance()
                     }
     print('using device: ', device)
 
-    train_ogbg(args, device, metrics_dict)
+    start_train(args, device, metrics_dict)
 
 
-def train_ogbg(args, device, metrics_dict):
+def start_train(args, device, metrics_dict):
     if args.dataset == 'chembl':
         dataclass = ChEMBLDataset
     else:
@@ -120,6 +104,9 @@ def train_ogbg(args, device, metrics_dict):
         test_idx = all_idx[len(model_idx): len(model_idx) + int(0.1 * len(dataset))]
         val_idx = all_idx[len(model_idx) + len(test_idx):]
         train_idx = model_idx[:args.num_train]
+        # for debugging
+        test_idx = all_idx[len(model_idx): len(model_idx) + 200]
+        val_idx = all_idx[len(model_idx) + len(test_idx): len(model_idx) + len(test_idx) + 300]
 
         split_idx = {'train': train_idx, 'valid': val_idx, 'test': test_idx}
     else:
@@ -157,8 +144,6 @@ def parse_arguments():
     p.add_argument('--logdir', type=str, default='runs', help='tensorboard logdirectory')
     p.add_argument('--num_epochs', type=int, default=2500, help='number of times to iterate through all samples')
     p.add_argument('--batch_size', type=int, default=1024, help='samples that will be processed in parallel')
-    p.add_argument('--prefetch_graphs', type=bool, default=True,
-                   help='load graphs into memory (needs RAM and upfront computation) for faster data loading during training')
     p.add_argument('--patience', type=int, default=20, help='stop training after no improvement in this many epochs')
     p.add_argument('--minimum_epochs', type=int, default=0, help='minimum numer of epochs to run')
     p.add_argument('--dataset', type=str, default='qm9', help='[qm9, zinc, drugs, geom_qm9, molhiv]')
@@ -167,9 +152,6 @@ def parse_arguments():
     p.add_argument('--seed_data', type=int, default=123, help='if you want to use a different seed for the datasplit')
     p.add_argument('--loss_func', type=str, default='MSELoss', help='Class name of torch.nn like [MSELoss, L1Loss]')
     p.add_argument('--loss_params', type=dict, default={}, help='parameters with keywords of the chosen loss function')
-    p.add_argument('--critic_loss', type=str, default='MSELoss', help='Class name of torch.nn like [MSELoss, L1Loss]')
-    p.add_argument('--critic_loss_params', type=dict, default={},
-                   help='parameters with keywords of the chosen loss function')
     p.add_argument('--optimizer', type=str, default='Adam', help='Class name of torch.optim like [Adam, SGD, AdamW]')
     p.add_argument('--optimizer_params', type=dict, help='parameters with keywords of the chosen optimizer like lr')
     p.add_argument('--lr_scheduler', type=str,
@@ -183,10 +165,8 @@ def parse_arguments():
                    help='frequency with which to do expensive logging operations')
     p.add_argument('--eval_per_epochs', type=int, default=0,
                    help='frequency with which to do run the function run_eval_per_epoch that can do some expensive calculations on the val set or sth like that. If this is zero, then the function will never be called')
-    p.add_argument('--linear_probing_samples', type=int, default=500,
-                   help='number of samples to use for linear probing in the run_eval_per_epoch function of the self supervised trainer')
     p.add_argument('--metrics', default=[], help='tensorboard metrics [mae, mae_denormalized, qm9_properties ...]')
-    p.add_argument('--main_metric', default='mae_denormalized', help='for early stopping etc.')
+    p.add_argument('--main_metric', default='loss', help='for early stopping etc.')
     p.add_argument('--main_metric_goal', type=str, default='min', help='controls early stopping. [max, min]')
     p.add_argument('--val_per_batch', type=bool, default=True,
                    help='run evaluation every batch and then average over the eval results. When running the molhiv benchmark for example, this needs to be Fale because we need to evaluate on all val data at once since the metric is rocauc')
@@ -199,32 +179,18 @@ def parse_arguments():
                    help='parameters that usually should not be transferred like batchnorm params')
     p.add_argument('--transferred_lr', type=float, default=None, help='set to use a different LR for transfer layers')
 
-    p.add_argument('--pos_dir', type=bool, default=False, help='adds pos dir as key to dgl graphs (required for dgn)')
     p.add_argument('--required_data', default=[],
                    help='what will be included in a batch like [mol_graph, targets, mol_graph3d]')
     p.add_argument('--collate_function', default='graph_collate', help='the collate function to use for DataLoader')
     p.add_argument('--collate_params', type=dict, default={},
                    help='parameters with keywords of the chosen collate function')
-    p.add_argument('--use_e_features', default=True, type=bool, help='ignore edge features if set to False')
     p.add_argument('--targets', default=[], help='properties that should be predicted')
     p.add_argument('--device', type=str, default='cuda', help='What device to train on: cuda or cpu')
-
-    p.add_argument('--dist_embedding', type=bool, default=False, help='add dist embedding to complete graphs edges')
-    p.add_argument('--num_radial', type=int, default=6, help='number of frequencies for distance embedding')
 
     p.add_argument('--model_type', type=str, default='MPNN', help='Classname of one of the models in the models dir')
     p.add_argument('--model_parameters', type=dict, help='dictionary of model parameters')
 
-    p.add_argument('--model3d_type', type=str, default=None, help='Classname of one of the models in the models dir')
-    p.add_argument('--model3d_parameters', type=dict, help='dictionary of model parameters')
-    p.add_argument('--critic_type', type=str, default=None, help='Classname of one of the models in the models dir')
-    p.add_argument('--critic_parameters', type=dict, help='dictionary of model parameters')
-    p.add_argument('--ssl_mode', type=str, default='contrastive', help='[contrastive, byol, alternating, philosophy]')
-    p.add_argument('--train_sampler', type=str, default=None, help='any of pytorchs samplers or a custom sampler')
-
     p.add_argument('--eval_on_test', type=bool, default=True, help='runs evaluation on test set if true')
-    p.add_argument('--transfer_from_different_dataset', type=bool, default=False,
-                   help='set to true when transferring from different dataset')
 
     args = p.parse_args()
 

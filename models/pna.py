@@ -140,7 +140,7 @@ class PNAGNN(nn.Module):
                  residual: bool = True, pairwise_distances: bool = False, activation: Union[Callable, str] = "relu",
                  last_activation: Union[Callable, str] = "none", mid_batch_norm: bool = False,
                  last_batch_norm: bool = False, batch_norm_momentum=0.1, propagation_depth: int = 5,
-                 dropout: float = 0.0, posttrans_layers: int = 1, pretrans_layers: int = 1, **kwargs):
+                 dropout: float = 0.0, posttrans_layers: int = 1, pretrans_layers: int = 1, padding=False, **kwargs):
         super(PNAGNN, self).__init__()
         self.mp_layers = nn.ModuleList()
         for _ in range(propagation_depth):
@@ -153,8 +153,8 @@ class PNAGNN(nn.Module):
                          ),
 
                 )
-        self.atom_encoder = AtomEncoder(emb_dim=hidden_dim)
-        self.bond_encoder = BondEncoder(emb_dim=hidden_dim)
+        self.atom_encoder = AtomEncoder(emb_dim=hidden_dim, padding=padding)
+        self.bond_encoder = BondEncoder(emb_dim=hidden_dim, padding=padding)
 
     def forward(self, graph: dgl.DGLGraph):
         graph.ndata['feat'] = self.atom_encoder(graph.ndata['feat'])
