@@ -18,7 +18,8 @@ class ChEMBLDataset(torch.utils.data.Dataset):
         self.root = root
         self.device = device
         self.processed_file = 'processed.pt'
-        self.smiles = pd.read_csv(os.path.join(self.root, 'chembl_smiles.csv'))['smiles']
+        smiles = pd.read_csv(os.path.join(self.root, 'chembl_smiles.csv'))
+        self.smiles = smiles[smiles.smiles != '[Cl-].[Li+]']['smiles']
 
     def __getitem__(self, idx):
         if idx in self.dgl_graphs:

@@ -2,8 +2,8 @@ experiment_name: 'baseline'
 
 dataset: 'chembl'
 num_epochs: 1000
-batch_size: 1000
-log_iterations: 30
+batch_size: 10
+log_iterations: 1
 patience: 30
 loss_func: BCEWithLogitsLoss
 num_train: 380000
