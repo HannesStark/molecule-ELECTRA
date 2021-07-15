@@ -19,7 +19,8 @@ class ChEMBLDataset(torch.utils.data.Dataset):
         self.device = device
         self.processed_file = 'processed.pt'
         smiles = pd.read_csv(os.path.join(self.root, 'chembl_smiles.csv'))
-        self.smiles = smiles[smiles.smiles != '[Cl-].[Li+]']['smiles']
+        smiles = smiles[smiles.smiles != '[Cl-].[Li+]']
+        self.smiles = smiles[smiles.smiles != '[Cl-].[Cl-].[Zn+2]']['smiles']
 
     def __getitem__(self, idx):
         if idx in self.dgl_graphs:
@@ -60,12 +61,4 @@ class ChEMBLDataset(torch.utils.data.Dataset):
         # Graph connectivity in COO format with shape [2, num_edges]
         edge_index = torch.tensor(edges_list, dtype=torch.long).T
         edge_features = torch.tensor(edge_features_list, dtype=torch.long)
-        try:
-            test = edge_index[0]
-        except:
-            print('edgeindex',edge_index)
-            print(smiles)
-            print('edge_feat',edge_features)
-            print('edge_list', edges_list)
-            print(n_atoms)
         return torch.tensor(atom_features_list), edge_features, edge_index, n_atoms
