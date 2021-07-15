@@ -2,7 +2,7 @@ experiment_name: 'baseline'
 
 dataset: 'chembl'
 num_epochs: 1000
-batch_size: 500
+batch_size: 1000
 log_iterations: 30
 patience: 30
 loss_func: BCEWithLogitsLoss
@@ -13,7 +13,7 @@ metrics:
   - accuracy
 optimizer: Adam
 optimizer_params:
-  lr: 1.0e-4
+  lr: 1.0e-3
 collate_function: MaskedCollate
 collate_params:
   mask_probability: 0.2
